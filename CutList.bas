@@ -1,78 +1,49 @@
 Attribute VB_Name = "CutList"
 Option Explicit
-Global Const BOARD_LENGTH As Long = 95
 Public Sub DimensionalLumberCutList()
-
-    Dim lastRow As Long
-    lastRow = Sheet1.Cells(Rows.Count, 1).End(xlUp).Row
-    Dim listofcomponents() As Double
-    listofcomponents = GetListOfComponents(lastRow)
+    Dim inputSheet As Worksheet
+    Set inputSheet = Sheet1
+    Dim outputSheet As Worksheet
+    Set outputSheet = Sheet2
     
-    Dim totalLength As Long
-    totalLength = GetTotalLength(listofcomponents)
-    Dim minimumNumberOfBoards As Long
-    minimumNumberOfBoards = Application.WorksheetFunction.RoundUp(totalLength / BOARD_LENGTH, 0)
+    Dim lastRow As Long
+    lastRow = inputSheet.Cells(Rows.Count, 1).End(xlUp).Row
+    
+    Dim listOfComponents As Variant
+    listOfComponents = GetListOfComponents(inputSheet, lastRow)
     
     Dim lumberStack As Collection
-    Set lumberStack = New Collection
-    Dim board As TwoByFour
-    Dim boardCount As Long
-    Dim listIndex As Long
-    For boardCount = 1 To minimumNumberOfBoards
-        Set board = New TwoByFour
-            For listIndex = LBound(listofcomponents) To UBound(listofcomponents)
-                If board.Offcut < listofcomponents(UBound(listofcomponents)) Then
-                    lumberStack.Add board
-                    Exit For
-                End If
-                If board.Offcut > listofcomponents(listIndex) And listofcomponents(listIndex) <> 0 Then
-                    board.MakeCut listofcomponents(listIndex)
-                    listofcomponents(listIndex) = 0
-                End If
-                If listIndex = UBound(listofcomponents) Then
-                    lumberStack.Add board
-                    Exit For
-                End If
-            Next
-            'some sort of error here***************************************
-            If Not Application.WorksheetFunction.Sum(listofcomponents) = 0 And boardCount = minimumNumberOfBoards Then
-                minimumNumberOfBoards = minimumNumberOfBoards + 1
-            End If
-    Next
-    With Sheet2
-        .UsedRange.Clear
-        For boardCount = 1 To lumberStack.Count
-            .Range(.Cells(boardCount, 1), .Cells(boardCount, lumberStack(boardCount).NumberOfCuts)) = lumberStack(boardCount).WriteCuts
-        Next
-    End With
-
+    Set lumberStack = CreateCutList(listOfComponents, inputSheet)
+    
+    PrintCuts outputSheet, lumberStack
+    
 End Sub
 
-
-Private Function GetListOfComponents(ByVal lastRow As Long) As Double()
+Private Function GetListOfComponents(ByVal inputSheet As Worksheet, ByVal lastRow As Long) As Variant
     Dim componentDataArray As Variant
-    componentDataArray = PopulateComponentDataArray(lastRow)
+    componentDataArray = PopulateComponentDataArray(inputSheet, lastRow)
     Dim numberOfComponents As Long
     numberOfComponents = GetNumberOfComponents(componentDataArray)
-    Dim componentDoubleArray() As Double
-    ReDim componentDoubleArray(1 To numberOfComponents)
+    Dim componentArray As Variant
+    ReDim componentArray(1 To numberOfComponents, 1 To 2)
     Dim index As Long
     index = 1
     Dim counter As Long
     Dim quantityOfEach As Long
     For counter = 1 To lastRow - 1
         For quantityOfEach = 1 To componentDataArray(counter, 2)
-            componentDoubleArray(index) = componentDataArray(counter, 1)
+            componentArray(index, 1) = componentDataArray(counter, 1)
+            componentArray(index, 2) = componentDataArray(counter, 1) & "-" & quantityOfEach
             index = index + 1
         Next
     Next
-    CombSortNumbers componentDoubleArray
-    GetListOfComponents = componentDoubleArray
+    CombSortArray componentArray, 2, 1
+    GetListOfComponents = componentArray
 End Function
 
-Private Function PopulateComponentDataArray(ByVal lastRow As Long) As Variant
+Private Function PopulateComponentDataArray(ByVal inputSheet As Worksheet, ByVal lastRow As Long) As Variant
     Dim componentRange As Range
-    Set componentRange = Sheet1.Range(Sheet1.Cells(2, 1), Sheet1.Cells(lastRow, 2))
+    Set componentRange = inputSheet.Range(inputSheet.Cells(2, 1), inputSheet.Cells(lastRow, 2))
     PopulateComponentDataArray = componentRange
 End Function
 
@@ -83,17 +54,75 @@ Private Function GetNumberOfComponents(ByVal componentDataArray As Variant) As L
     Next
 End Function
 
-Private Function GetTotalLength(ByVal listofcomponents As Variant) As Double
+Private Function CreateCutList(ByRef listOfComponents As Variant, ByVal inputSheet As Worksheet) As Collection
+    Dim lumberStack As Collection
+    Set lumberStack = New Collection
+    Dim board As TwoByFour
     Dim index As Long
-    For index = LBound(listofcomponents) To UBound(listofcomponents)
-        GetTotalLength = GetTotalLength + listofcomponents(index)
-    Next
+    
+    Do
+        Set board = New TwoByFour
+        board.boardLength = inputSheet.Range("boardLength")
+        board.bladeKerf = inputSheet.Range("bladeKerf")
+        For index = LBound(listOfComponents, 1) To UBound(listOfComponents, 1)
+            If board.Offcut < listOfComponents(UBound(listOfComponents, 1), 1) Then Exit For
+            If board.Offcut > listOfComponents(index, 1) And listOfComponents(index, 1) <> 0 Then
+                board.MakeCut CStr(listOfComponents(index, 2)), CDbl(listOfComponents(index, 1))
+                listOfComponents(index, 1) = 0
+            End If
+        Next
+        lumberStack.Add board
+    Loop While Application.WorksheetFunction.Sum(Application.WorksheetFunction.index(listOfComponents, 0, 1)) > 0
+    Set CreateCutList = lumberStack
 End Function
 
-Private Sub CombSortNumbers(ByRef numberArray() As Double, Optional ByVal sortAscending As Boolean = False)
+Private Sub PrintCuts(ByVal targetSheet As Worksheet, ByVal lumberStack As Collection)
+    Const PROJECT_REQUIRES As String = "Your project requires "
+    Const BOARDS_REQUIRED As String = "''" & " boards:"
+    Const OFFCUT_LENGTH As String = "Offcut: "
+    Const BOARD_TITLE As String = "Board "
+
+    Dim arrayOfCuts As Variant
+    Dim lastColumn As Long
+    Dim index As Long
+    With targetSheet
+        .UsedRange.Clear
+        .Cells(1, 1) = PROJECT_REQUIRES & lumberStack.Count & " " & lumberStack(1).boardLength & BOARDS_REQUIRED
+        For index = 1 To lumberStack.Count
+            arrayOfCuts = lumberStack(index).CutArray
+            .Cells(index + 1, 1) = BOARD_TITLE & index
+            .Range(.Cells(index + 1, 2), .Cells(index + 1, UBound(arrayOfCuts) + 1)) = arrayOfCuts
+            .Cells(index + 1, UBound(arrayOfCuts) + 3) = OFFCUT_LENGTH & lumberStack(index).Offcut
+            If lastColumn < UBound(arrayOfCuts) + 3 Then lastColumn = UBound(arrayOfCuts) + 3
+        Next
+    End With
+    FormatList targetSheet, lumberStack.Count + 1, lastColumn, lumberStack(1).bladeKerf
+End Sub
+
+Private Sub FormatList(ByVal targetSheet As Worksheet, ByVal lastRow As Long, ByVal lastColumn As Long, ByVal bladeKerf As Double)
+    Const KERF_WASTE As String = "Kerf waste: "
+    Dim targetRow As Long
+    Dim offCutColumn As Long
+    With targetSheet
+        For targetRow = 2 To lastRow
+            offCutColumn = .Cells(targetRow, Columns.Count).End(xlToLeft).Column
+            If Not offCutColumn = lastColumn Then
+                .Cells(targetRow, lastColumn) = .Cells(targetRow, offCutColumn)
+                .Cells(targetRow, offCutColumn) = vbNullString
+            End If
+            .Cells(targetRow, lastColumn + 1) = KERF_WASTE & (offCutColumn - 3) * bladeKerf
+        Next
+        
+        .Columns.AutoFit
+        .Columns(1).ColumnWidth = 10
+    End With
+End Sub
+
+
+Private Sub CombSortArray(ByRef dataArray As Variant, Optional ByVal numberOfColumns As Long = 1, Optional ByVal sortKeyColumn As Long = 1)
     Const SHRINK As Double = 1.3
     Dim initialSize As Long
-    initialSize = UBound(numberArray())
+    initialSize = UBound(dataArray, 1)
     Dim gap As Long
     gap = initialSize
     Dim index As Long
@@ -107,18 +136,11 @@ Private Sub CombSortNumbers(ByRef numberArray() As Double, Optional ByVal sortAs
             gap = 1
             isSorted = True
         End If
-        index = LBound(numberArray)
+        index = 1
         Do While index + gap <= initialSize
-            If sortAscending Then
-                If numberArray(index) > numberArray(index + gap) Then
-                    SwapElements numberArray, index, index + gap
-                    isSorted = False
-                End If
-            Else
-                If numberArray(index) < numberArray(index + gap) Then
-                    SwapElements numberArray, index, index + gap
-                    isSorted = False
-                End If
+            If dataArray(index, sortKeyColumn) < dataArray(index + gap, sortKeyColumn) Then
+               SwapElements dataArray, numberOfColumns, index, index + gap
+               isSorted = False
             End If
             index = index + 1
         Loop
@@ -126,9 +148,12 @@ Private Sub CombSortNumbers(ByRef numberArray() As Double, Optional ByVal sortAs
 
 End Sub
 
-Private Sub SwapElements(ByRef numberArray() As Double, ByVal i As Long, ByVal j As Long)
-    Dim temporaryHolder As Double
-    temporaryHolder = numberArray(i)
-    numberArray(i) = numberArray(j)
-    numberArray(j) = temporaryHolder
+Private Sub SwapElements(ByRef dataArray As Variant, ByVal numberOfColumns As Long, ByVal i As Long, ByVal j As Long)
+    Dim temporaryHolder As Variant
+    Dim index As Long
+    For index = 1 To numberOfColumns
+        temporaryHolder = dataArray(i, index)
+        dataArray(i, index) = dataArray(j, index)
+        dataArray(j, index) = temporaryHolder
+    Next
 End Sub
