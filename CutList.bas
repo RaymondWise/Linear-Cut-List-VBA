@@ -1,29 +1,29 @@
 Attribute VB_Name = "CutList"
 Option Explicit
 Public Sub DimensionalLumberCutList()
-    Dim inputSheet As Worksheet
-    Set inputSheet = Sheet1
-    Dim outputSheet As Worksheet
-    Set outputSheet = Sheet2
+    Dim sourceSheet As Worksheet
+    Set sourceSheet = Sheet1
+    Dim targetSheet As Worksheet
+    Set targetSheet = Sheet2
     
     Dim lastRow As Long
-    lastRow = inputSheet.Cells(Rows.Count, 1).End(xlUp).Row
+    lastRow = sourceSheet.Cells(Rows.Count, 1).End(xlUp).Row
     
     Dim listOfComponents As Variant
-    listOfComponents = GetListOfComponents(inputSheet, lastRow)
+    listOfComponents = GetListOfComponents(sourceSheet, lastRow)
     
     Dim lumberStack As Collection
-    Set lumberStack = CreateCutList(listOfComponents, inputSheet)
+    Set lumberStack = GetCutlist(listOfComponents, sourceSheet)
     
-    PrintCuts outputSheet, lumberStack
+    PrintCuts targetSheet, lumberStack
     
 End Sub
 
-Private Function GetListOfComponents(ByVal inputSheet As Worksheet, ByVal lastRow As Long) As Variant
-    Dim componentDataArray As Variant
-    componentDataArray = PopulateComponentDataArray(inputSheet, lastRow)
+Private Function GetListOfComponents(ByVal sourceSheet As Worksheet, ByVal lastRow As Long) As Variant
+    Dim inputData As Variant
+    inputData = PopulateinputData(sourceSheet, lastRow)
     Dim numberOfComponents As Long
-    numberOfComponents = GetNumberOfComponents(componentDataArray)
+    numberOfComponents = GetNumberOfComponents(inputData)
     Dim componentArray As Variant
     ReDim componentArray(1 To numberOfComponents, 1 To 2)
     Dim index As Long
@@ -31,9 +31,9 @@ Private Function GetListOfComponents(ByVal inputSheet As Worksheet, ByVal lastRo
     Dim counter As Long
     Dim quantityOfEach As Long
     For counter = 1 To lastRow - 1
-        For quantityOfEach = 1 To componentDataArray(counter, 2)
-            componentArray(index, 1) = componentDataArray(counter, 1)
-            componentArray(index, 2) = componentDataArray(counter, 1) & "-" & quantityOfEach
+        For quantityOfEach = 1 To inputData(counter, 2)
+            componentArray(index, 1) = inputData(counter, 1)
+            componentArray(index, 2) = inputData(counter, 1) & "-" & quantityOfEach
             index = index + 1
         Next
     Next
@@ -41,20 +41,20 @@ Private Function GetListOfComponents(ByVal inputSheet As Worksheet, ByVal lastRo
     GetListOfComponents = componentArray
 End Function
 
-Private Function PopulateComponentDataArray(ByVal inputSheet As Worksheet, ByVal lastRow As Long) As Variant
+Private Function PopulateinputData(ByVal sourceSheet As Worksheet, ByVal lastRow As Long) As Variant
     Dim componentRange As Range
-    Set componentRange = inputSheet.Range(inputSheet.Cells(2, 1), inputSheet.Cells(lastRow, 2))
-    PopulateComponentDataArray = componentRange
+    Set componentRange = sourceSheet.Range(sourceSheet.Cells(2, 1), sourceSheet.Cells(lastRow, 2))
+    PopulateinputData = componentRange
 End Function
 
-Private Function GetNumberOfComponents(ByVal componentDataArray As Variant) As Long
+Private Function GetNumberOfComponents(ByVal inputData As Variant) As Long
     Dim counter As Long
-    For counter = LBound(componentDataArray) To UBound(componentDataArray)
-        GetNumberOfComponents = GetNumberOfComponents + componentDataArray(counter, 2)
+    For counter = LBound(inputData) To UBound(inputData)
+        GetNumberOfComponents = GetNumberOfComponents + inputData(counter, 2)
     Next
 End Function
 
-Private Function CreateCutList(ByRef listOfComponents As Variant, ByVal inputSheet As Worksheet) As Collection
+Private Function GetCutlist(ByRef listOfComponents As Variant, ByVal sourceSheet As Worksheet) As Collection
     Dim lumberStack As Collection
     Set lumberStack = New Collection
     Dim board As TwoByFour
@@ -62,8 +62,8 @@ Private Function CreateCutList(ByRef listOfComponents As Variant, ByVal inputShe
     
     Do
         Set board = New TwoByFour
-        board.boardLength = inputSheet.Range("boardLength")
-        board.bladeKerf = inputSheet.Range("bladeKerf")
+        board.boardLength = sourceSheet.Range("boardLength")
+        board.bladeKerf = sourceSheet.Range("bladeKerf")
         For index = LBound(listOfComponents, 1) To UBound(listOfComponents, 1)
             If board.Offcut < listOfComponents(UBound(listOfComponents, 1), 1) Then Exit For
             If board.Offcut > listOfComponents(index, 1) And listOfComponents(index, 1) <> 0 Then
@@ -73,7 +73,7 @@ Private Function CreateCutList(ByRef listOfComponents As Variant, ByVal inputShe
         Next
         lumberStack.Add board
     Loop While Application.WorksheetFunction.Sum(Application.WorksheetFunction.index(listOfComponents, 0, 1)) > 0
-    Set CreateCutList = lumberStack
+    Set GetCutlist = lumberStack
 End Function
 
 Private Sub PrintCuts(ByVal targetSheet As Worksheet, ByVal lumberStack As Collection)
@@ -120,7 +120,10 @@ End Sub
 
 
 Private Sub CombSortArray(ByRef dataArray As Variant, Optional ByVal numberOfColumns As Long = 1, Optional ByVal sortKeyColumn As Long = 1)
+    'Comb Sort procedure only sorts descending because cutlist is relying on descending values
+    'For full procedure see https://github.com/RaymondWise/VBACombSort
     Const SHRINK As Double = 1.3
+    
     Dim initialSize As Long
     initialSize = UBound(dataArray, 1)
     Dim gap As Long
